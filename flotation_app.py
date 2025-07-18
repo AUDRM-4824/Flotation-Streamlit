@@ -19,9 +19,9 @@ COLLECTOR_LOOKUP = {
 AIR_RATE_LOOKUP = {
     0: {"recovery": 25.0, "grade": 32.0},
     25: {"recovery": 85.0, "grade": 53.0},
-    50: {"recovery": 84.0, "grade": 46.0},
-    75: {"recovery": 61.0, "grade": 31.0},
-    100: {"recovery": 25.0, "grade": 16.0}
+    50: {"recovery": 88.0, "grade": 46.0},
+    75: {"recovery": 90.0, "grade": 31.0},
+    100: {"recovery": 40.0, "grade": 16.0}
 }
 
 FROTHER_LOOKUP = {
@@ -34,8 +34,11 @@ FROTHER_LOOKUP = {
 
 PH_LOOKUP = {
     8.5: {"recovery_multiplier": 1.0, "grade_bonus": 0.0},
-    9.8: {"recovery_multiplier": 1.13, "grade_bonus": 3.9},
-    11.0: {"recovery_multiplier": 0.86, "grade_bonus": 7.5},
+    9.0: {"recovery_multiplier": 1.03, "grade_bonus": 3.9},
+    9.5: {"recovery_multiplier": 1.05, "grade_bonus": 4.5},
+    10.0: {"recovery_multiplier": 1.05, "grade_bonus": 5.0},
+    10.5: {"recovery_multiplier": 1.03, "grade_bonus": 5.5},
+    11.0: {"recovery_multiplier": 0.90, "grade_bonus": 7.5},
     12.0: {"recovery_multiplier": 0.40, "grade_bonus": 10.5}
 }
 
@@ -165,7 +168,7 @@ with col1:
     st.metric(
         "Zinc Recovery", 
         f"{recovery:.1f}%",
-        delta=f"{recovery - 85:.1f}%" if recovery != 85 else None
+        delta=f"{recovery - 88:.1f}%" if recovery != 88 else None
     )
 
 with col2:
@@ -179,7 +182,8 @@ with col3:
     st.metric(
         "Carbon Content", 
         f"{carbon:.2f}%",
-        delta=f"{carbon - 1.0:.2f}%" if carbon != 1.0 else None
+        delta=f"{carbon - 0.8:.2f}%" if carbon != 0.8 else None,
+        delta_color="inverse"
     )
 
 with col4:
