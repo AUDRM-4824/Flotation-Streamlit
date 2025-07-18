@@ -34,10 +34,10 @@ FROTHER_LOOKUP = {
 
 PH_LOOKUP = {
     8.5: {"recovery_multiplier": 1.0, "grade_bonus": 0.0},
-    9.0: {"recovery_multiplier": 1.03, "grade_bonus": 3.9},
-    9.5: {"recovery_multiplier": 1.05, "grade_bonus": 4.5},
-    10.0: {"recovery_multiplier": 1.05, "grade_bonus": 5.0},
-    10.5: {"recovery_multiplier": 1.03, "grade_bonus": 5.5},
+    9.0: {"recovery_multiplier": 1.0, "grade_bonus": 3.9},
+    9.5: {"recovery_multiplier": 1.0, "grade_bonus": 4.5},
+    10.0: {"recovery_multiplier": 0.98, "grade_bonus": 5.0},
+    10.5: {"recovery_multiplier": 0.95, "grade_bonus": 5.5},
     11.0: {"recovery_multiplier": 0.90, "grade_bonus": 7.5},
     12.0: {"recovery_multiplier": 0.40, "grade_bonus": 10.5}
 }
@@ -81,7 +81,7 @@ def calculate_performance(collector, air_rate, frother, ph, luproset, mn_grade):
     base_recovery = (collector_metrics["recovery"] * 0.40 + 
                     air_metrics["recovery"] * 0.25 + 
                     frother_metrics["recovery"] * 0.15 +
-                    85.0 * 0.15)
+                    88.0 * 0.25)
     
     # Apply pH multiplier
     recovery = base_recovery * ph_metrics["recovery_multiplier"]
@@ -95,7 +95,7 @@ def calculate_performance(collector, air_rate, frother, ph, luproset, mn_grade):
                  frother_metrics["grade"] * 0.15 +
                  50.0 * 0.10)
     
-    grade = base_grade + ph_metrics["grade_bonus"] - mn_grade
+    grade = base_grade + ph_metrics["grade_bonus"] - (mn_grade*3)
     
     # Carbon content (affected by luproset)
     carbon = 2.0 * np.exp(-luproset * 0.02)
@@ -114,45 +114,44 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("🏭 Zinc Froth Flotation Control Simulator")
-st.markdown("### Six-Parameter Process Control Training System")
+st.title("🏭 Zinc Froth Flotation Simulator")
 
 # Sidebar controls
 st.sidebar.header("Flotation Parameters")
 
 collector = st.sidebar.slider(
     "Collector Dosage (g/t)",
-    min_value=0, max_value=150, value=75, step=5,
+    min_value=0, max_value=150, value=0, step=5,
     help="Primary reagent for mineral hydrophobicity"
 )
 
 air_rate = st.sidebar.slider(
     "Air Rate (L/min)",
-    min_value=0, max_value=100, value=25, step=5,
+    min_value=0, max_value=100, value=0, step=5,
     help="Bubble generation rate - bell curve optimization"
 )
 
 frother = st.sidebar.slider(
     "Frother Dosage (g/t)",
-    min_value=0, max_value=100, value=40, step=5,
+    min_value=0, max_value=100, value=0, step=5,
     help="Bubble stability and size control"
 )
 
 ph = st.sidebar.slider(
     "pH",
-    min_value=8.5, max_value=12.0, value=9.8, step=0.1,
+    min_value=8.5, max_value=12.0, value=8.5, step=0.1,
     help="Pulp pH - affects mineral surface chemistry"
 )
 
 luproset = st.sidebar.slider(
     "Luproset Dosage (g/t)",
-    min_value=0, max_value=100, value=50, step=5,
+    min_value=0, max_value=100, value=0, step=5,
     help="Carbon depressant - reduces carbon content"
 )
 
 mn_grade = st.sidebar.slider(
     "Feed Mn Grade (%)",
-    min_value=0.1, max_value=1.0, value=0.5, step=0.1,
+    min_value=0.1, max_value=1.0, value=0.8, step=0.1,
     help="Manganese content in feed ore"
 )
 
@@ -312,25 +311,6 @@ if len(st.session_state.history) > 1:
     fig3.update_layout(height=500, title_text="Process Trends")
     st.plotly_chart(fig3, use_container_width=True)
 
-# Operating guidance
-st.subheader("Operating Guidance")
-
-col1, col2 = st.columns(2)
-
-with col1:
-    st.markdown("**Optimal Ranges:**")
-    st.markdown(f"- Collector: 70-80 g/t {'✅' if 70 <= collector <= 80 else '❌'}")
-    st.markdown(f"- Air Rate: 20-30 L/min {'✅' if 20 <= air_rate <= 30 else '❌'}")
-    st.markdown(f"- Frother: 35-45 g/t {'✅' if 35 <= frother <= 45 else '❌'}")
-    st.markdown(f"- pH: 9.5-10.0 {'✅' if 9.5 <= ph <= 10.0 else '❌'}")
-
-with col2:
-    if recovery > 90 and grade > 50:
-        st.success("🎯 Excellent performance! All targets met.")
-    elif recovery > 85 and grade > 45:
-        st.warning("⚠️ Good performance. Minor optimization possible.")
-    else:
-        st.error("🔴 Performance below target. Check parameter settings.")
 
 # Reset button
 if st.button("Reset Trends"):
