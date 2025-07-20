@@ -5,6 +5,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
 import time
+import random
 
 # Your existing lookup tables (abbreviated for demo)
 COLLECTOR_LOOKUP = {
@@ -68,7 +69,7 @@ def interpolate_lookup(value, lookup_table):
     
     return result
 
-def calculate_performance(collector, air_rate, frother, ph, luproset, mn_grade):
+def calculate_performance(collector, air_rate, frother, ph, luproset, mn_grade, zn_feed_grade):
     """Calculate flotation performance from parameters"""
     
     # Get individual effects
@@ -77,11 +78,16 @@ def calculate_performance(collector, air_rate, frother, ph, luproset, mn_grade):
     frother_metrics = interpolate_lookup(frother, FROTHER_LOOKUP)
     ph_metrics = interpolate_lookup(ph, PH_LOOKUP)
     
-    # Weighted combination
+    # NEW: Calculate grade recovery factor based on Zn feed grade
+    # Higher feed grades have better recovery potential
+    # Scale from 0.6 (at 2% Zn) to 1.0 (at 15% Zn)
+    grade_recovery_factor = 0.7 + ((zn_feed_grade - 2.0) / (15.0 - 2.0)) * 0.4
+    
+    # Weighted combination with feed grade factor
     base_recovery = (collector_metrics["recovery"] * 0.40 + 
                     air_metrics["recovery"] * 0.25 + 
                     frother_metrics["recovery"] * 0.15 +
-                    88.0 * 0.25)
+                    88.0 * 0.25) * grade_recovery_factor
     
     # Apply pH multiplier
     recovery = base_recovery * ph_metrics["recovery_multiplier"]
@@ -89,13 +95,15 @@ def calculate_performance(collector, air_rate, frother, ph, luproset, mn_grade):
     # Luproset reduces recovery slightly
     recovery -= luproset * 0.015
     
-    # Grade calculation
+    # Grade calculation - higher feed grades can achieve slightly higher concentrate grades
+    feed_grade_bonus = (zn_feed_grade - 8.0) * 0.3  # Bonus/penalty from 8% baseline
+    
     base_grade = (collector_metrics["grade"] * 0.45 + 
                  air_metrics["grade"] * 0.30 + 
                  frother_metrics["grade"] * 0.15 +
                  50.0 * 0.10)
     
-    grade = base_grade + ph_metrics["grade_bonus"] - (mn_grade*3)
+    grade = base_grade + ph_metrics["grade_bonus"] - (mn_grade*3) + feed_grade_bonus
     
     # Carbon content (affected by luproset)
     carbon = 2.0 * np.exp(-luproset * 0.02)
@@ -116,68 +124,109 @@ st.set_page_config(
 
 st.title("🏭 Zinc Froth Flotation Simulator")
 
+# Initialize session state for all parameters if not exists
+if 'zn_feed_grade' not in st.session_state:
+    st.session_state.zn_feed_grade = 8.0
+if 'mn_grade' not in st.session_state:
+    st.session_state.mn_grade = 0.8
+if 'collector' not in st.session_state:
+    st.session_state.collector = 0
+if 'air_rate' not in st.session_state:
+    st.session_state.air_rate = 0
+if 'frother' not in st.session_state:
+    st.session_state.frother = 0
+if 'ph' not in st.session_state:
+    st.session_state.ph = 8.5
+if 'luproset' not in st.session_state:
+    st.session_state.luproset = 0
+
 # Sidebar controls
+st.sidebar.header("Feed Characteristics")
+
+# New scenario button
+if st.sidebar.button("🎲 New Scenario", help="Generate new random operating conditions", type="primary"):
+    # Randomize feed characteristics
+    st.session_state.zn_feed_grade = round(random.uniform(8.0, 13.0), 1)
+    st.session_state.mn_grade = round(random.uniform(0.2, 1.0), 1)
+    
+    # Randomize flotation parameters to realistic starting values
+    st.session_state.collector = random.randint(20, 80)  # Typical range
+    st.session_state.air_rate = random.randint(30, 70)   # Typical range
+    st.session_state.frother = random.randint(15, 60)    # Typical range
+    st.session_state.ph = round(random.uniform(9.0, 10.5), 1)  # Typical range
+    st.session_state.luproset = random.randint(0, 40)    # Lower typical range
+    
+    st.rerun()
+
+
+mn_grade = st.sidebar.slider(
+    "Feed Mn Grade (%)",
+    min_value=0.1, max_value=1.0, value=st.session_state.mn_grade, step=0.1,
+    help="Manganese content in feed ore"
+)
+
 st.sidebar.header("Flotation Parameters")
 
 collector = st.sidebar.slider(
     "Collector Dosage (g/t)",
-    min_value=0, max_value=150, value=0, step=5,
+    min_value=0, max_value=150, value=st.session_state.collector, step=5,
     help="Primary reagent for mineral hydrophobicity"
 )
 
 air_rate = st.sidebar.slider(
     "Air Rate (L/min)",
-    min_value=0, max_value=100, value=0, step=5,
+    min_value=0, max_value=100, value=st.session_state.air_rate, step=5,
     help="Bubble generation rate - bell curve optimization"
 )
 
 frother = st.sidebar.slider(
     "Frother Dosage (g/t)",
-    min_value=0, max_value=100, value=0, step=5,
+    min_value=0, max_value=100, value=st.session_state.frother, step=5,
     help="Bubble stability and size control"
 )
 
 ph = st.sidebar.slider(
     "pH",
-    min_value=8.5, max_value=12.0, value=8.5, step=0.1,
+    min_value=8.5, max_value=12.0, value=st.session_state.ph, step=0.1,
     help="Pulp pH - affects mineral surface chemistry"
 )
 
 luproset = st.sidebar.slider(
     "Luproset Dosage (g/t)",
-    min_value=0, max_value=100, value=0, step=5,
+    min_value=0, max_value=100, value=st.session_state.luproset, step=5,
     help="Carbon depressant - reduces carbon content"
 )
 
-mn_grade = st.sidebar.slider(
-    "Feed Mn Grade (%)",
-    min_value=0.1, max_value=1.0, value=0.8, step=0.1,
-    help="Manganese content in feed ore"
-)
-
-# Calculate current performance
+# Calculate current performance using session state feed grade
 recovery, grade, carbon = calculate_performance(
-    collector, air_rate, frother, ph, luproset, mn_grade
+    collector, air_rate, frother, ph, luproset, mn_grade, st.session_state.zn_feed_grade
 )
 
 # Main dashboard
-col1, col2, col3, col4 = st.columns(4)
+col1, col2, col3, col4, col5 = st.columns(5)
 
 with col1:
+    st.metric(
+        "Feed Zn Grade", 
+        f"{st.session_state.zn_feed_grade:.1f}%",
+        delta=None
+    )
+
+with col2:
     st.metric(
         "Zinc Recovery", 
         f"{recovery:.1f}%",
         delta=f"{recovery - 88:.1f}%" if recovery != 88 else None
     )
 
-with col2:
+with col3:
     st.metric(
         "Zinc Grade", 
         f"{grade:.1f}%",
         delta=f"{grade - 50:.1f}%" if grade != 50 else None
     )
 
-with col3:
+with col4:
     st.metric(
         "Carbon Content", 
         f"{carbon:.2f}%",
@@ -185,9 +234,9 @@ with col3:
         delta_color="inverse"
     )
 
-with col4:
+with col5:
     st.metric(
-        "Manganese", 
+        "Feed Manganese", 
         f"{mn_grade:.1f}%",
         delta=None
     )
@@ -204,7 +253,8 @@ with col1:
         x=[recovery], y=[grade],
         mode='markers',
         marker=dict(size=15, color='red', symbol='star'),
-        name='Current Operation'
+        name=f'Current Operation (Feed: {st.session_state.zn_feed_grade}% Zn)',
+        hovertemplate='Recovery: %{x:.1f}%<br>Grade: %{y:.1f}%<extra></extra>'
     )
     
     # Add target zone
@@ -215,19 +265,36 @@ with col1:
         line=dict(color="green", width=2)
     )
     
+    # Add text annotation for target zone
+    fig1.add_annotation(
+        x=87.5, y=50,
+        text="Target Zone",
+        showarrow=False,
+        font=dict(color="green", size=12)
+    )
+    
     fig1.update_layout(
         title="Grade-Recovery Performance",
         xaxis_title="Zinc Recovery (%)",
         yaxis_title="Zinc Grade (%)",
-        showlegend=True
+        showlegend=True,
+        xaxis=dict(range=[0, 100]),
+        yaxis=dict(range=[20, 65])
     )
     
     st.plotly_chart(fig1, use_container_width=True)
 
 with col2:
     # Parameter effects radar chart
-    params = ['Collector', 'Air Rate', 'Frother', 'pH', 'Luproset', 'Manganese']
-    values = [collector/150*100, air_rate, frother, (ph-8.5)/(12-8.5)*100, luproset, mn_grade*100]
+    params = ['Collector', 'Air Rate', 'Frother', 'pH', 'Luproset', 'Feed Zn Grade']
+    values = [
+        collector/150*100, 
+        air_rate, 
+        frother, 
+        (ph-8.5)/(12-8.5)*100, 
+        luproset,
+        (st.session_state.zn_feed_grade-2.0)/(15.0-2.0)*100
+    ]
     
     fig2 = go.Figure()
     
@@ -249,73 +316,7 @@ with col2:
     
     st.plotly_chart(fig2, use_container_width=True)
 
-# Real-time trends (simulated)
-if 'history' not in st.session_state:
-    st.session_state.history = []
-
-# Only add to history when parameters change (to avoid constant updates)
-current_params = (collector, air_rate, frother, ph, luproset, mn_grade)
-if 'last_params' not in st.session_state or st.session_state.last_params != current_params:
-    st.session_state.history.append({
-        'time': len(st.session_state.history),
-        'recovery': recovery,
-        'grade': grade,
-        'carbon': carbon
-    })
-    st.session_state.last_params = current_params
-
-# Keep only last 50 points
-if len(st.session_state.history) > 50:
-    st.session_state.history = st.session_state.history[-50:]
-
-# Trends plot
-if len(st.session_state.history) > 1:
-    df_history = pd.DataFrame(st.session_state.history)
-    
-    fig3 = make_subplots(
-        rows=2, cols=2,
-        subplot_titles=('Recovery Trend', 'Grade Trend', 'Carbon Trend', 'Grade vs Recovery'),
-        specs=[[{"secondary_y": False}, {"secondary_y": False}],
-               [{"secondary_y": False}, {"secondary_y": False}]]
-    )
-    
-    # Recovery trend
-    fig3.add_trace(
-        go.Scatter(x=df_history['time'], y=df_history['recovery'], 
-                  name='Recovery', line=dict(color='blue')),
-        row=1, col=1
-    )
-    
-    # Grade trend
-    fig3.add_trace(
-        go.Scatter(x=df_history['time'], y=df_history['grade'], 
-                  name='Grade', line=dict(color='red')),
-        row=1, col=2
-    )
-    
-    # Carbon trend
-    fig3.add_trace(
-        go.Scatter(x=df_history['time'], y=df_history['carbon'], 
-                  name='Carbon', line=dict(color='brown')),
-        row=2, col=1
-    )
-    
-    # Grade vs Recovery scatter
-    fig3.add_trace(
-        go.Scatter(x=df_history['recovery'], y=df_history['grade'], 
-                  mode='markers+lines', name='Operating Path', 
-                  line=dict(color='purple')),
-        row=2, col=2
-    )
-    
-    fig3.update_layout(height=500, title_text="Process Trends")
-    st.plotly_chart(fig3, use_container_width=True)
-
-
 # Reset button
-if st.button("Reset Trends"):
-    st.session_state.history = []
+if st.button("Reset All Parameters"):
+    # Force page reload to reset all sliders
     st.rerun()
-
-# Optional: Auto-refresh every 5 seconds (remove if not needed)
-# time.sleep(0.1)
