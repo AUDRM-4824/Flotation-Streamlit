@@ -19,10 +19,10 @@ COLLECTOR_LOOKUP = {
 
 AIR_RATE_LOOKUP = {
     0: {"recovery": 25.0, "grade": 32.0},
-    25: {"recovery": 85.0, "grade": 53.0},
-    50: {"recovery": 88.0, "grade": 46.0},
-    75: {"recovery": 90.0, "grade": 31.0},
-    100: {"recovery": 40.0, "grade": 16.0}
+    325: {"recovery": 85.0, "grade": 53.0},
+    650: {"recovery": 88.0, "grade": 46.0},
+    975: {"recovery": 90.0, "grade": 31.0},
+    1300: {"recovery": 40.0, "grade": 16.0}
 }
 
 FROTHER_LOOKUP = {
@@ -129,8 +129,8 @@ if 'zn_feed_grade' not in st.session_state:
     st.session_state.zn_feed_grade = 8.0
 if 'mn_grade' not in st.session_state:
     st.session_state.mn_grade = 0.8
-if 'collector' not in st.session_state:
-    st.session_state.collector = 0
+if 'collector_gMU' not in st.session_state:
+    st.session_state.collector_gMU = 0
 if 'air_rate' not in st.session_state:
     st.session_state.air_rate = 0
 if 'frother' not in st.session_state:
@@ -150,8 +150,9 @@ if st.sidebar.button("🎲 New Scenario", help="Generate new random operating co
     st.session_state.mn_grade = round(random.uniform(0.2, 1.0), 1)
     
     # Randomize flotation parameters to realistic starting values
-    st.session_state.collector = random.randint(20, 80)  # Typical range
-    st.session_state.air_rate = random.randint(30, 70)   # Typical range
+    # Collector: rescale from old range (20-80) to new range (213-853)
+    st.session_state.collector_gMU = random.randint(213, 853)  # Typical range in g/MU
+    st.session_state.air_rate = random.randint(390, 910)   # Typical range (30-70% of 1300)
     st.session_state.frother = random.randint(15, 60)    # Typical range
     st.session_state.ph = round(random.uniform(9.0, 10.5), 1)  # Typical range
     st.session_state.luproset = random.randint(0, 40)    # Lower typical range
@@ -167,15 +168,18 @@ mn_grade = st.sidebar.slider(
 
 st.sidebar.header("Flotation Parameters")
 
-collector = st.sidebar.slider(
-    "Collector Dosage (g/t)",
-    min_value=0, max_value=150, value=st.session_state.collector, step=5,
+collector_gMU = st.sidebar.slider(
+    "Collector Dosage (g/MU)",
+    min_value=0, max_value=1600, value=st.session_state.collector_gMU, step=25,
     help="Primary reagent for mineral hydrophobicity"
 )
 
+# Convert g/MU back to g/t for calculations (0-1600 g/MU maps to 0-150 g/t)
+collector = (collector_gMU / 1600) * 150
+
 air_rate = st.sidebar.slider(
-    "Air Rate (L/min)",
-    min_value=0, max_value=100, value=st.session_state.air_rate, step=5,
+    "Air Rate (m³/hr)",
+    min_value=0, max_value=1300, value=st.session_state.air_rate, step=25,
     help="Bubble generation rate - bell curve optimization"
 )
 
@@ -216,7 +220,7 @@ with col2:
     st.metric(
         "Zinc Recovery", 
         f"{recovery:.1f}%",
-        delta=f"{recovery - 88:.1f}%" if recovery != 88 else None
+        delta=f"{recovery - 87:.1f}%" if recovery != 88 else None
     )
 
 with col3:
@@ -288,8 +292,8 @@ with col2:
     # Parameter effects radar chart
     params = ['Collector', 'Air Rate', 'Frother', 'pH', 'Luproset', 'Feed Zn Grade']
     values = [
-        collector/150*100, 
-        air_rate, 
+        collector_gMU/1600*100,  # Updated to use g/MU scale
+        air_rate/1300*100, 
         frother, 
         (ph-8.5)/(12-8.5)*100, 
         luproset,
