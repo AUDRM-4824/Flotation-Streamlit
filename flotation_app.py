@@ -6,23 +6,21 @@ import plotly.express as px
 from plotly.subplots import make_subplots
 import time
 import random
+import base64
 
 # Your existing lookup tables (abbreviated for demo)
 COLLECTOR_LOOKUP = {
-    0: {"recovery": 15.0, "grade": 55.0},
-    25: {"recovery": 46.0, "grade": 52.5},
-    50: {"recovery": 70.0, "grade": 50.0},
-    75: {"recovery": 85.0, "grade": 47.5},
-    100: {"recovery": 93.0, "grade": 45.0},
-    150: {"recovery": 97.2, "grade": 40.0}
+    200: {"recovery": 15.0, "grade": 55.0},
+    400: {"recovery": 46.0, "grade": 52.5},
+    650: {"recovery": 70.0, "grade": 50.0},
+    900: {"recovery": 85.0, "grade": 47.5},
+    1100: {"recovery": 93.0, "grade": 45.0},
+    1500: {"recovery": 97.2, "grade": 40.0}
 }
 
 AIR_RATE_LOOKUP = {
-    0: {"recovery": 25.0, "grade": 32.0},
-    325: {"recovery": 85.0, "grade": 53.0},
-    650: {"recovery": 88.0, "grade": 46.0},
-    975: {"recovery": 90.0, "grade": 31.0},
-    1300: {"recovery": 40.0, "grade": 16.0}
+    500: {"recovery": 30.0, "grade": 58.0},
+    1500: {"recovery": 92.0, "grade": 22.0}
 }
 
 FROTHER_LOOKUP = {
@@ -115,6 +113,15 @@ def calculate_performance(collector, air_rate, frother, ph, luproset, mn_grade, 
     
     return recovery, grade, carbon
 
+def calculate_targets(mn_grade):
+    """Calculate target grade and recovery based on feed Mn grade.
+    Best achievable grade uses the same Mn penalty as the main model.
+    Recovery target is fixed at 80% of the practical maximum."""
+    best_possible_grade = min(65, 60.0 - (mn_grade * 3))
+    target_grade = best_possible_grade * 0.80
+    target_recovery = 76.0  # 80% of ~95% practical max
+    return target_recovery, target_grade
+
 # Streamlit App
 st.set_page_config(
     page_title="Zinc Flotation Simulator",
@@ -122,17 +129,33 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("🏭 Zinc Froth Flotation Simulator")
+def set_background(image_path):
+    with open(image_path, "rb") as f:
+        img_data = base64.b64encode(f.read()).decode()
+    st.markdown(f"""
+        <style>
+        .stApp {{
+            background-image: url("data:image/jpeg;base64,{img_data}");
+            background-size: cover;
+            background-position: center;
+            background-attachment: fixed;
+        }}
+        </style>
+    """, unsafe_allow_html=True)
+
+set_background("assets/background.jpg")
+
+st.markdown("<h1 style='text-align: center;'>DRM Zinc Flotation</h1>", unsafe_allow_html=True)
 
 # Initialize session state for all parameters if not exists
 if 'zn_feed_grade' not in st.session_state:
     st.session_state.zn_feed_grade = 8.0
 if 'mn_grade' not in st.session_state:
     st.session_state.mn_grade = 0.8
-if 'collector_gMU' not in st.session_state:
-    st.session_state.collector_gMU = 0
+if 'collector' not in st.session_state:
+    st.session_state.collector = 200
 if 'air_rate' not in st.session_state:
-    st.session_state.air_rate = 0
+    st.session_state.air_rate = 500
 if 'frother' not in st.session_state:
     st.session_state.frother = 0
 if 'ph' not in st.session_state:
@@ -149,56 +172,46 @@ if st.sidebar.button("🎲 New Scenario", help="Generate new random operating co
     st.session_state.zn_feed_grade = round(random.uniform(8.0, 13.0), 1)
     st.session_state.mn_grade = round(random.uniform(0.2, 1.0), 1)
     
-    # Randomize flotation parameters to realistic starting values
-    # Collector: rescale from old range (20-80) to new range (213-853)
-    st.session_state.collector_gMU = random.randint(213, 853)  # Typical range in g/MU
-    st.session_state.air_rate = random.randint(390, 910)   # Typical range (30-70% of 1300)
-    st.session_state.frother = random.randint(15, 60)    # Typical range
-    st.session_state.ph = round(random.uniform(9.0, 10.5), 1)  # Typical range
-    st.session_state.luproset = random.randint(0, 40)    # Lower typical range
+    # Reset control variables to minimum so operator must dial in from scratch
+    st.session_state.collector = 200
+    st.session_state.air_rate = 500
+    st.session_state.frother = 0
+    st.session_state.ph = 8.5
+    st.session_state.luproset = 0
     
     st.rerun()
 
 
-mn_grade = st.sidebar.slider(
-    "Feed Mn Grade (%)",
-    min_value=0.1, max_value=1.0, value=st.session_state.mn_grade, step=0.1,
-    help="Manganese content in feed ore"
+mn_grade = st.sidebar.number_input(
+    "Feed Mn Grade (%)  [0.1 – 1.0]",
+    min_value=0.1, max_value=1.0, step=0.1, format="%.1f", key='mn_grade'
 )
 
 st.sidebar.header("Flotation Parameters")
 
-collector_gMU = st.sidebar.slider(
-    "Collector Dosage (g/MU)",
-    min_value=0, max_value=1600, value=st.session_state.collector_gMU, step=25,
-    help="Primary reagent for mineral hydrophobicity"
+collector = st.sidebar.number_input(
+    "Collector Dosage (ml/min)  [200 – 1500]",
+    min_value=200, max_value=1500, step=25, key='collector'
 )
 
-# Convert g/MU back to g/t for calculations (0-1600 g/MU maps to 0-150 g/t)
-collector = (collector_gMU / 1600) * 150
-
-air_rate = st.sidebar.slider(
-    "Air Rate (m³/hr)",
-    min_value=0, max_value=1300, value=st.session_state.air_rate, step=25,
-    help="Bubble generation rate - bell curve optimization"
+air_rate = st.sidebar.number_input(
+    "Air Rate (m³/hr)  [500 – 1500]",
+    min_value=500, max_value=1500, step=25, key='air_rate'
 )
 
-frother = st.sidebar.slider(
-    "Frother Dosage (g/t)",
-    min_value=0, max_value=100, value=st.session_state.frother, step=5,
-    help="Bubble stability and size control"
+frother = st.sidebar.number_input(
+    "Frother Dosage (ml/min)  [0 – 100]",
+    min_value=0, max_value=100, step=5, key='frother'
 )
 
-ph = st.sidebar.slider(
-    "pH",
-    min_value=8.5, max_value=12.0, value=st.session_state.ph, step=0.1,
-    help="Pulp pH - affects mineral surface chemistry"
+ph = st.sidebar.number_input(
+    "pH  [8.5 – 12.0]",
+    min_value=8.5, max_value=12.0, step=0.1, format="%.1f", key='ph'
 )
 
-luproset = st.sidebar.slider(
-    "Luproset Dosage (g/t)",
-    min_value=0, max_value=100, value=st.session_state.luproset, step=5,
-    help="Carbon depressant - reduces carbon content"
+luproset = st.sidebar.number_input(
+    "Luproset Dosage (g/t)  [0 – 100]",
+    min_value=0, max_value=100, step=5, key='luproset'
 )
 
 # Calculate current performance using session state feed grade
@@ -218,24 +231,20 @@ with col1:
 
 with col2:
     st.metric(
-        "Zinc Recovery", 
-        f"{recovery:.1f}%",
-        delta=f"{recovery - 87:.1f}%" if recovery != 88 else None
+        "Zinc Recovery",
+        f"{recovery:.1f}%"
     )
 
 with col3:
     st.metric(
-        "Zinc Grade", 
-        f"{grade:.1f}%",
-        delta=f"{grade - 50:.1f}%" if grade != 50 else None
+        "Zinc Grade",
+        f"{grade:.1f}%"
     )
 
 with col4:
     st.metric(
-        "Carbon Content", 
-        f"{carbon:.2f}%",
-        delta=f"{carbon - 0.8:.2f}%" if carbon != 0.8 else None,
-        delta_color="inverse"
+        "Carbon Content",
+        f"{carbon:.2f}%"
     )
 
 with col5:
@@ -249,9 +258,12 @@ with col5:
 col1, col2 = st.columns(2)
 
 with col1:
+    # Calculate dynamic target based on feed Mn grade
+    target_recovery, target_grade = calculate_targets(mn_grade)
+
     # Grade-Recovery plot
     fig1 = go.Figure()
-    
+
     # Add current operating point
     fig1.add_scatter(
         x=[recovery], y=[grade],
@@ -260,21 +272,28 @@ with col1:
         name=f'Current Operation (Feed: {st.session_state.zn_feed_grade}% Zn)',
         hovertemplate='Recovery: %{x:.1f}%<br>Grade: %{y:.1f}%<extra></extra>'
     )
-    
-    # Add target zone
+
+    # Shade the acceptable operating zone (recovery >= target AND grade >= target)
     fig1.add_shape(
         type="rect",
-        x0=80, y0=45, x1=95, y1=55,
-        fillcolor="lightgreen", opacity=0.3,
-        line=dict(color="green", width=2)
+        x0=target_recovery, y0=target_grade,
+        x1=100, y1=65,
+        fillcolor="lightgreen", opacity=0.25,
+        line=dict(width=0)
     )
-    
-    # Add text annotation for target zone
+    # Border lines along the two threshold edges
+    fig1.add_shape(type="line", x0=target_recovery, y0=target_grade, x1=target_recovery, y1=65,
+                   line=dict(color="green", width=1.5, dash="dash"))
+    fig1.add_shape(type="line", x0=target_recovery, y0=target_grade, x1=100, y1=target_grade,
+                   line=dict(color="green", width=1.5, dash="dash"))
+
+    # Label the zone boundary
     fig1.add_annotation(
-        x=87.5, y=50,
-        text="Target Zone",
-        showarrow=False,
-        font=dict(color="green", size=12)
+        x=target_recovery + 1, y=64,
+        text=f"<b>Target zone<br>R≥{target_recovery:.0f}% | G≥{target_grade:.0f}%</b>",
+        showarrow=False, xanchor="left",
+        font=dict(color="darkgreen", size=13),
+        bgcolor="white", bordercolor="green", borderwidth=1, opacity=0.85
     )
     
     fig1.update_layout(
@@ -292,8 +311,8 @@ with col2:
     # Parameter effects radar chart
     params = ['Collector', 'Air Rate', 'Frother', 'pH', 'Luproset', 'Feed Zn Grade']
     values = [
-        collector_gMU/1600*100,  # Updated to use g/MU scale
-        air_rate/1300*100, 
+        (collector - 200) / (1500 - 200) * 100,
+        (air_rate - 500) / (1500 - 500) * 100,
         frother, 
         (ph-8.5)/(12-8.5)*100, 
         luproset,
